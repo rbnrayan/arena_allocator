@@ -40,10 +40,10 @@ void *arena_alloc_align(struct Arena *arena, size_t size, size_t align)
 {
     assert((align & 1) == 0 && "aligment must be a power of two");
 
-    uintptr_t curr_addr = ((uintptr_t)arena->mem_block) + arena->cursor;
+    uintptr_t curr_addr = (uintptr_t)arena->mem_block + arena->cursor;
     size_t padding = 0;
 
-    if (!IS_ALIGNED(curr_addr, align))
+    if (align > 0 && !IS_ALIGNED(curr_addr, align))
         padding = align - (curr_addr & (align - 1));
 
     if(arena->cursor + padding + size > arena->capacity)
@@ -68,6 +68,11 @@ void *arena_alloc_align(struct Arena *arena, size_t size, size_t align)
 inline void *arena_alloc(struct Arena *arena, size_t size)
 {
     return arena_alloc_align(arena, size, DEFAULT_ALIGN);
+}
+
+inline void *arena_alloc_packed(struct Arena *arena, size_t size)
+{
+    return arena_alloc_align(arena, size, 0);
 }
 
 void arena_free(struct Arena *arena)
