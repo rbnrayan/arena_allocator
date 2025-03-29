@@ -15,13 +15,12 @@ struct Child {
 int main(void)
 {
     /* Lifetime for struct and members */
-    size_t arena_size = sizeof(struct Sample) + sizeof(struct Child) * 5;
-    struct Arena *arena = arena_new(arena_size);
+    struct Arena *arena = arena_new(4096);
 
-    struct Sample *sample = arena_alloc_align(arena, sizeof(struct Sample), 8);
+    struct Sample *sample = arena_alloc(arena, sizeof(struct Sample));
     assert(sample != NULL);
 
-    sample->child = arena_alloc_align(arena, sizeof(struct Child) * 5, 4);
+    sample->child = arena_alloc(arena, sizeof(struct Child) * 5);
     assert(sample->child != NULL);
 
     arena_free(arena);

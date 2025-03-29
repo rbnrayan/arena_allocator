@@ -1,7 +1,6 @@
 #include "arena.h"
 #include <assert.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <stdlib.h>
 
 #ifdef ARENA_DEBUG_PRINT
@@ -13,14 +12,14 @@
 #define IS_ALIGNED(x, align) (!(x & (align - 1)))
 
 struct Arena {
-    size_t   cursor;
     size_t   capacity;
-    uint8_t *mem_block;
+    void    *cursor;
+    void    *mem_block;
 };
 
 struct Arena *arena_new(size_t size)
 {
-    uint8_t *mem_block = malloc(size);
+    void *mem_block = malloc(size);
     if (mem_block == NULL)
         return NULL;
 
@@ -31,38 +30,42 @@ struct Arena *arena_new(size_t size)
     }
 
     arena->mem_block = mem_block;
-    arena->cursor = 0;
+    arena->cursor = mem_block;
     arena->capacity = size;
     return arena;
 }
 
+/*
+ * MEM_BLOCK is already guaranteed to be aligned because it it allocated using malloc.
+ * So we only need to handle alignment from inside the arena using an OFFSET (ptrdiff_t).
+ */
 void *arena_alloc_align(struct Arena *arena, size_t size, size_t align)
 {
     assert(!(align & (align - 1)) && "aligment must equal to 0 or be a power of two");
 
-    uintptr_t curr_addr = ((uintptr_t)arena->mem_block) + arena->cursor;
+    ptrdiff_t offset = arena->cursor - arena->mem_block;
     size_t padding = 0;
 
-    if (align > 0 && !IS_ALIGNED(curr_addr, align))
-        padding = align - (curr_addr & (align - 1));
+    if (align > 0 && !IS_ALIGNED(offset, align))
+        padding = align - (offset & (align - 1));
 
-    if(arena->cursor + padding + size > arena->capacity)
+    if(arena->cursor + padding + size > arena->mem_block + arena->capacity)
         return NULL;
 
 #ifdef ARENA_DEBUG_PRINT
     printf("# ARENA_ALLOC_ALIGN(size = %zu, align = %zu)\n", size, align);
     printf("ARENA_DEBUG:\tmem_block       %p\n", arena->mem_block);
-    printf("ARENA_DEBUG:\tcurr_addr       %p\n", (void *)curr_addr);
-    printf("ARENA_DEBUG:\tret_addr        %p\n", (void *)curr_addr + padding);
-    printf("ARENA_DEBUG:\tnext_addr       %p\n", (void *)curr_addr + padding + size);
+    printf("ARENA_DEBUG:\toffset          %zu\n", offset);
+    printf("ARENA_DEBUG:\tpadding         %zu\n", padding);
     printf("ARENA_DEBUG:\tcapacity        %zuB\n", arena->capacity);
-    printf("ARENA_DEBUG:\tcursor (before) %zu\n", arena->cursor);
-    printf("ARENA_DEBUG:\tcursor (after)  %zu\n", arena->cursor + padding + size);
-    printf("ARENA_DEBUG:\tremains         %zuB\n", arena->capacity - (arena->cursor + padding + size));
+    printf("ARENA_DEBUG:\tcursor (before) %p\n", arena->cursor);
+    printf("ARENA_DEBUG:\tcursor (after)  %p\n", arena->cursor + padding + size);
+    printf("ARENA_DEBUG:\tremains         %zuB\n", (arena->mem_block + arena->capacity) - (arena->cursor + padding + size));
 #endif
 
-    arena->cursor = padding + size;
-    return (void *)(curr_addr + padding);
+    void *ptr = arena->cursor + padding;
+    arena->cursor += padding + size;
+    return ptr;
 }
 
 inline void *arena_alloc(struct Arena *arena, size_t size)
