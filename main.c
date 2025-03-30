@@ -22,6 +22,13 @@ int main(void)
 
     sample->child = arena_alloc(arena, sizeof(struct Child) * 5);
     assert(sample->child != NULL);
+    for (size_t i = 0; i < 5; ++i) {
+        sample->child[i].foo = i;
+    }
+
+    for (size_t i = 0; i < 5; ++i) {
+        printf("child %d\n", sample->child[i].foo);
+    }
 
     arena_free(arena);
 
