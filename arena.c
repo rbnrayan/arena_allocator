@@ -36,7 +36,7 @@ struct Arena *arena_new(size_t size)
 }
 
 /*
- * MEM_BLOCK is already guaranteed to be aligned because it it allocated using malloc.
+ * MEM_BLOCK is already guaranteed to be aligned because it is allocated using malloc.
  * So we only need to handle alignment from inside the arena using an OFFSET (ptrdiff_t).
  */
 void *arena_alloc_align(struct Arena *arena, size_t size, size_t align)
@@ -60,7 +60,8 @@ void *arena_alloc_align(struct Arena *arena, size_t size, size_t align)
     printf("ARENA_DEBUG:\tcapacity        %zuB\n", arena->capacity);
     printf("ARENA_DEBUG:\tcursor (before) %p\n", arena->cursor);
     printf("ARENA_DEBUG:\tcursor (after)  %p\n", arena->cursor + padding + size);
-    printf("ARENA_DEBUG:\tremains         %zuB\n", (arena->mem_block + arena->capacity) - (arena->cursor + padding + size));
+    printf("ARENA_DEBUG:\tremains         %zuB\n",
+           (arena->mem_block + arena->capacity) - (arena->cursor + padding + size));
 #endif
 
     void *ptr = arena->cursor + padding;
