@@ -1,87 +1,116 @@
 #include "arena.h"
+#include <stdlib.h>
 #include <assert.h>
 #include <stddef.h>
-#include <stdlib.h>
+#include <stdint.h>
 
-#ifdef ARENA_DEBUG_PRINT
-    #include <stdio.h>
-#endif
+#define ARENA_DEFAULT_CAPACITY 256
 
-#define DEFAULT_ALIGN __alignof__(max_align_t)
+#define PACKED_ALIGN 0
+#define MAX_ALIGN __alignof__(max_align_t)
 #define ALIGN_FORWARD(x, align) ((x + (align - 1)) & ~(align - 1))
 #define IS_ALIGNED(x, align) (!(x & (align - 1)))
 
-struct Arena {
-    size_t   capacity;
-    void    *cursor;
-    void    *mem_block;
+struct ArenaBlock {
+    void                *mem_block;
+    struct ArenaBlock   *next;
 };
 
-struct Arena *arena_new(size_t size)
-{
-    void *mem_block = malloc(size);
-    if (mem_block == NULL)
-        return NULL;
+struct Arena {
+    struct ArenaBlock   *mem_blocks;
+    struct ArenaBlock   *current_block;
+    size_t               cursor;
+    size_t               per_block_capacity;
+};
 
-    struct Arena *arena = malloc(sizeof(struct Arena));
-    if (arena == NULL) {
-        free(mem_block);
-        return NULL;
+struct Arena *arena_new(size_t initial_capacity)
+{
+    size_t block_capacity;
+    if (!initial_capacity) {
+        block_capacity = ARENA_DEFAULT_CAPACITY;
+    } else {
+        block_capacity = initial_capacity;
     }
 
-    arena->mem_block = mem_block;
-    arena->cursor = mem_block;
-    arena->capacity = size;
+    struct Arena *arena = malloc(sizeof(struct Arena));
+    if (arena == NULL)
+        return NULL;
+
+    struct ArenaBlock *block = malloc(sizeof(struct ArenaBlock));
+    if (block == NULL)
+        return NULL;
+    
+    block->next = NULL;
+    block->mem_block = malloc(block_capacity);
+    if (block->mem_block == NULL)
+        return NULL;
+
+    arena->mem_blocks = block;
+    arena->current_block = block;
+    arena->cursor = 0;
+    arena->per_block_capacity = block_capacity;
+
     return arena;
 }
 
-/*
- * MEM_BLOCK is already guaranteed to be aligned because it is allocated using malloc.
- * So we only need to handle alignment from inside the arena using an OFFSET (ptrdiff_t).
- */
 void *arena_alloc_align(struct Arena *arena, size_t size, size_t align)
 {
-    assert(!(align & (align - 1)) && "aligment must equal to 0 or be a power of two");
+    assert(size > 0);
 
-    ptrdiff_t offset = arena->cursor - arena->mem_block;
-    size_t padding = 0;
+    size_t aligned_size = size;
+    if (!IS_ALIGNED(aligned_size, align))
+        aligned_size = ALIGN_FORWARD(aligned_size, align);
 
-    if (align > 0 && !IS_ALIGNED(offset, align))
-        padding = align - (offset & (align - 1));
+    if (arena->cursor + aligned_size > arena->per_block_capacity) {
+        /* FIXME: if aligned_size is bigger than arena->per_block_capacity
+                  this cannot work. (update PER_BLOCK_CAPACITY?) */
+        assert(aligned_size <= arena->per_block_capacity);
 
-    if(arena->cursor + padding + size > arena->mem_block + arena->capacity)
-        return NULL;
+        struct ArenaBlock *block = malloc(sizeof(struct ArenaBlock));
+        if (block == NULL)
+            return NULL;
+        
+        block->next = NULL;
+        block->mem_block = malloc(arena->per_block_capacity);
+        if (block->mem_block == NULL)
+            return NULL;
 
-#ifdef ARENA_DEBUG_PRINT
-    printf("# ARENA_ALLOC_ALIGN(size = %zu, align = %zu)\n", size, align);
-    printf("ARENA_DEBUG:\tmem_block       %p\n", arena->mem_block);
-    printf("ARENA_DEBUG:\toffset          %zu\n", offset);
-    printf("ARENA_DEBUG:\tpadding         %zu\n", padding);
-    printf("ARENA_DEBUG:\tcapacity        %zuB\n", arena->capacity);
-    printf("ARENA_DEBUG:\tcursor (before) %p\n", arena->cursor);
-    printf("ARENA_DEBUG:\tcursor (after)  %p\n", arena->cursor + padding + size);
-    printf("ARENA_DEBUG:\tremains         %zuB\n",
-           (arena->mem_block + arena->capacity) - (arena->cursor + padding + size));
-#endif
+        arena->current_block->next = block;
+        arena->current_block = arena->current_block->next;
+        arena->cursor = 0;
+    }
 
-    void *ptr = arena->cursor + padding;
-    arena->cursor += padding + size;
+    /* NOTE: does this violate the strict aliasing rule? */
+    void *ptr = &((uint8_t *)arena->current_block->mem_block)[arena->cursor];
+    arena->cursor += aligned_size;
     return ptr;
 }
 
 inline void *arena_alloc(struct Arena *arena, size_t size)
 {
-    return arena_alloc_align(arena, size, DEFAULT_ALIGN);
+    return arena_alloc_align(arena, size, MAX_ALIGN);
 }
 
 inline void *arena_alloc_packed(struct Arena *arena, size_t size)
 {
-    return arena_alloc_align(arena, size, 0);
+    return arena_alloc_align(arena, size, PACKED_ALIGN);
+}
+
+static void arena_free_memblocks(struct Arena *arena)
+{
+    struct ArenaBlock *head = arena->mem_blocks;
+    while (head != NULL) {
+        struct ArenaBlock *next = head->next;
+
+        free(head->mem_block);
+        free(head);
+
+        head = next;
+    }
 }
 
 void arena_free(struct Arena *arena)
 {
-    free(arena->mem_block);
+    arena_free_memblocks(arena);
     free(arena);
 }
-
