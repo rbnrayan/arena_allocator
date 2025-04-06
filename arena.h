@@ -5,8 +5,10 @@
 
 struct Arena;
 
-/* Returns a new arena allocator with a capacity of SIZE */
-struct Arena *arena_new(size_t size);
+/* Returns a new arena allocator with an INITIAL CAPACITY for each memory
+   block. If 0 is passed as INITIAL CAPACITY, the implementation use a default
+   value. */
+struct Arena *arena_new(size_t initial_capacity);
 /* Allocates SIZE bytes of memory from ARENA aligned with a default alignment
    set to `__alignof__(max_align_t)`. */
 void *arena_alloc(struct Arena *arena, size_t size);
