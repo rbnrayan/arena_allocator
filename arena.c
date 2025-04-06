@@ -12,15 +12,14 @@
 #define IS_ALIGNED(x, align) (!(x & (align - 1)))
 
 struct ArenaBlock {
-    void                *mem_block;
-    struct ArenaBlock   *next;
+    uint8_t             *mem_block;
+    size_t               capacity;
+    struct ArenaBlock   *prev;
 };
 
 struct Arena {
-    struct ArenaBlock   *mem_blocks;
-    struct ArenaBlock   *current_block;
+    struct ArenaBlock   *last_block;
     size_t               cursor;
-    size_t               per_block_capacity;
 };
 
 struct Arena *arena_new(size_t initial_capacity)
@@ -31,24 +30,30 @@ struct Arena *arena_new(size_t initial_capacity)
     } else {
         block_capacity = initial_capacity;
     }
+    
 
     struct Arena *arena = malloc(sizeof(struct Arena));
-    if (arena == NULL)
+    if (arena == NULL) {
         return NULL;
+    }
 
     struct ArenaBlock *block = malloc(sizeof(struct ArenaBlock));
-    if (block == NULL)
+    if (block == NULL) {
+        free(arena);
         return NULL;
+    }
     
-    block->next = NULL;
+    block->prev = NULL;
+    block->capacity = block_capacity;
     block->mem_block = malloc(block_capacity);
-    if (block->mem_block == NULL)
+    if (block->mem_block == NULL) {
+        free(arena);
+        free(block);
         return NULL;
+    }
 
-    arena->mem_blocks = block;
-    arena->current_block = block;
+    arena->last_block = block;
     arena->cursor = 0;
-    arena->per_block_capacity = block_capacity;
 
     return arena;
 }
@@ -58,30 +63,35 @@ void *arena_alloc_align(struct Arena *arena, size_t size, size_t align)
     assert(size > 0);
 
     size_t aligned_size = size;
-    if (!IS_ALIGNED(aligned_size, align))
+    if (!IS_ALIGNED(aligned_size, align)) {
         aligned_size = ALIGN_FORWARD(aligned_size, align);
+    }
 
-    if (arena->cursor + aligned_size > arena->per_block_capacity) {
-        /* FIXME: if aligned_size is bigger than arena->per_block_capacity
-                  this cannot work. (update PER_BLOCK_CAPACITY?) */
-        assert(aligned_size <= arena->per_block_capacity);
-
+    if (arena->cursor + aligned_size > arena->last_block->capacity) {
         struct ArenaBlock *block = malloc(sizeof(struct ArenaBlock));
-        if (block == NULL)
+        if (block == NULL) {
             return NULL;
-        
-        block->next = NULL;
-        block->mem_block = malloc(arena->per_block_capacity);
-        if (block->mem_block == NULL)
-            return NULL;
+        }
 
-        arena->current_block->next = block;
-        arena->current_block = arena->current_block->next;
+        size_t block_capacity = arena->last_block->capacity * 2;
+        while(block_capacity < aligned_size) {
+            block_capacity *= 2;
+        }
+
+        block->capacity = block_capacity;
+        block->mem_block = malloc(block->capacity);
+        if (block->mem_block == NULL) {
+            free(block);
+            return NULL;
+        }
+        block->prev = arena->last_block;
+
+        arena->last_block = block;
         arena->cursor = 0;
     }
 
     /* NOTE: does this violate the strict aliasing rule? */
-    void *ptr = &((uint8_t *)arena->current_block->mem_block)[arena->cursor];
+    void *ptr = arena->last_block->mem_block + arena->cursor;
     arena->cursor += aligned_size;
     return ptr;
 }
@@ -98,14 +108,14 @@ inline void *arena_alloc_packed(struct Arena *arena, size_t size)
 
 static void arena_free_memblocks(struct Arena *arena)
 {
-    struct ArenaBlock *head = arena->mem_blocks;
+    struct ArenaBlock *head = arena->last_block;
     while (head != NULL) {
-        struct ArenaBlock *next = head->next;
+        struct ArenaBlock *prev = head->prev;
 
         free(head->mem_block);
         free(head);
 
-        head = next;
+        head = prev;
     }
 }
 
